@@ -1,10 +1,4 @@
 
-- document persisting after submitting to acquiring bank
-
-# Requirements
-
-
-
 # Solution: Tim Storer
 
 Implementation notes:
