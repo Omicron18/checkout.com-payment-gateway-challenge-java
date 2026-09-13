@@ -1,25 +1,16 @@
-# Instructions for candidates
 
-This is the Java version of the Payment Gateway challenge. If you haven't already read this [README.md](https://github.com/cko-recruitment/) on the details of this exercise, please do so now.
+- document persisting after submitting to acquiring bank
 
-## Requirements
-- JDK 17
-- Docker
-
-## Template structure
-
-src/ - A skeleton SpringBoot Application
-
-test/ - Some simple JUnit tests
-
-imposters/ - contains the bank simulator configuration. Don't change this
-
-.editorconfig - don't change this. It ensures a consistent set of rules for submissions when reformatting code
-
-docker-compose.yml - configures the bank simulator
+# Requirements
 
 
-## API Documentation
-For documentation openAPI is included, and it can be found under the following url: **http://localhost:8090/swagger-ui/index.html**
 
-**Feel free to change the structure of the solution, use a different library etc.**
+# Solution: Tim Storer
+
+Implementation notes:
+- Idempotency: in a real payment system, we would want to use a client-generated idempotency token
+to prevent accidental duplicates being created.  This is ignored here.
+- In a real payment system, we would want to store the payment (with "Pending" status) after
+validating and before sending the request to the acquiring bank.  This would allow us to cope with
+failures, timeouts, etc.  Again, this is ignored for this exercise.
+- Testing: there is very little logic, and so almost all the tests are on the controller-level.
