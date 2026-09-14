@@ -1,6 +1,11 @@
 package com.checkout.payment.gateway.controller;
 
 
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalToJson;
+import static com.github.tomakehurst.wiremock.client.WireMock.ok;
+import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.stubFor;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -8,6 +13,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.checkout.payment.gateway.enums.PaymentStatus;
 import com.checkout.payment.gateway.model.PaymentResponse;
 import com.checkout.payment.gateway.repository.PaymentsRepository;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.http.ContentTypeHeader;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
@@ -22,13 +29,52 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.wiremock.spring.EnableWireMock;
 import tools.jackson.databind.json.JsonMapper;
 
-@SpringBootTest
+@SpringBootTest(properties = {"app.acquiring-bank-url=${wiremock.server.baseUrl}"})
 @AutoConfigureMockMvc
+@EnableWireMock
 class PaymentGatewayControllerTest {
 
-  public static final String BASE_URL = "/v1/payment";
+  private static final String BASE_URL = "/v1/payment";
+
+  private static final String EXPECTED_REQUEST_TO_ACQUIRING_BANK = """
+      {
+        "card_number": "2222405343248877",
+        "expiry_date": "4/2027",
+        "currency":"GBP",
+        "amount":100,
+        "cvv":"1234"
+      }
+      """;
+
+  private static final String AUTHORIZED_RESPONSE_FROM_ACQUIRING_BANK = """
+      {
+         "authorized": true,
+         "authorization_code": "0bb07405-6d44-4b50-a14f-7ae0beff13ad"      
+      }
+      """;
+
+  private static final String DECLINED_RESPONSE_FROM_ACQUIRING_BANK = """
+      {
+         "authorized": false
+      }
+      """;
+
+  private static final String PAYMENT_REQUEST = """
+      {
+        "card_number": "2222405343248877",
+        "expiry_month": 4,
+        "expiry_year": 2027,
+        "currency": "GBP",
+        "amount": 100,
+        "cvv": "1234"
+      }
+      """;
+
+  private static final String ACQUIRING_BANK_PATH = "/payments";
+
   @Autowired
   private MockMvc mvc;
 
@@ -84,24 +130,18 @@ class PaymentGatewayControllerTest {
 
     @Nested
     class Valid {
-      // These tests require the mountebank imposter to be running
 
       @Test
       void shouldSucceed_whenValidBodyPosted_andBankAuthorizes() throws Exception {
-        String body = """
-            {
-              "card_number": "2222405343248877",
-              "expiry_month": 4,
-              "expiry_year": 2027,
-              "currency": "GBP",
-              "amount": 100,
-              "cvv": "1234"
-            }
-            """;
+        stubFor(post(ACQUIRING_BANK_PATH)
+            .withHeader(ContentTypeHeader.KEY, equalTo("application/json"))
+            .withRequestBody(equalToJson(EXPECTED_REQUEST_TO_ACQUIRING_BANK))
+            .willReturn(ok().withHeader(ContentTypeHeader.KEY, "application/json")
+                .withBody(AUTHORIZED_RESPONSE_FROM_ACQUIRING_BANK)));
 
         mvc.perform(
                 MockMvcRequestBuilders.post(BASE_URL).contentType(MediaType.APPLICATION_JSON)
-                    .content(body))
+                    .content(PAYMENT_REQUEST))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.id").exists())
             .andExpect(jsonPath("$.status").value(PaymentStatus.AUTHORIZED.getName()))
@@ -114,24 +154,18 @@ class PaymentGatewayControllerTest {
 
       @Test
       void shouldSucceed_whenValidBodyPosted_andBankDeclines() throws Exception {
-        String body = """
-            {
-              "card_number": "2222405343248876",
-              "expiry_month": 4,
-              "expiry_year": 2027,
-              "currency": "GBP",
-              "amount": 100,
-              "cvv": "1234"
-            }
-            """;
+        stubFor(post(ACQUIRING_BANK_PATH).withHeader(ContentTypeHeader.KEY, equalTo("application/json"))
+            .withRequestBody(equalToJson(EXPECTED_REQUEST_TO_ACQUIRING_BANK))
+            .willReturn(ok().withHeader(ContentTypeHeader.KEY, "application/json").withBody(
+                DECLINED_RESPONSE_FROM_ACQUIRING_BANK)));
 
         mvc.perform(
                 MockMvcRequestBuilders.post(BASE_URL).contentType(MediaType.APPLICATION_JSON)
-                    .content(body))
+                    .content(PAYMENT_REQUEST))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.id").exists())
             .andExpect(jsonPath("$.status").value(PaymentStatus.DECLINED.getName()))
-            .andExpect(jsonPath("$.cardNumberLastFour").value("8876"))
+            .andExpect(jsonPath("$.cardNumberLastFour").value("8877"))
             .andExpect(jsonPath("$.expiryMonth").value(4))
             .andExpect(jsonPath("$.expiryYear").value(2027))
             .andExpect(jsonPath("$.currency").value("GBP"))
@@ -140,21 +174,14 @@ class PaymentGatewayControllerTest {
 
       @Test
       void shouldFail_whenValidBodyPosted_andBankReturns5xx() throws Exception {
-        String body = """
-            {
-              "card_number": "2222405343248870",
-              "expiry_month": 4,
-              "expiry_year": 2027,
-              "currency": "GBP",
-              "amount": 100,
-              "cvv": "1234"
-            }
-            """;
+        stubFor(post(ACQUIRING_BANK_PATH).withHeader(ContentTypeHeader.KEY, equalTo("application/json"))
+            .withRequestBody(equalToJson(EXPECTED_REQUEST_TO_ACQUIRING_BANK))
+            .willReturn(WireMock.status(500)));
 
         mvc.perform(
                 MockMvcRequestBuilders.post(BASE_URL)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(body))
+                    .content(PAYMENT_REQUEST))
             .andExpect(status().is(500))
             .andExpect(jsonPath("$.id").doesNotExist())
             .andExpect(jsonPath("$.status").doesNotExist())
@@ -165,21 +192,11 @@ class PaymentGatewayControllerTest {
       @Test
       void shouldFail_whenValidBodyPosted_andUnhandledExceptionIsThrown() throws Exception {
         when(clock.instant()).thenThrow(new RuntimeException());
-        String body = """
-            {
-              "card_number": "2222405343248870",
-              "expiry_month": 4,
-              "expiry_year": 2027,
-              "currency": "GBP",
-              "amount": 100,
-              "cvv": "1234"
-            }
-            """;
 
         mvc.perform(
                 MockMvcRequestBuilders.post(BASE_URL)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(body))
+                    .content(PAYMENT_REQUEST))
             .andExpect(status().is(500))
             .andExpect(jsonPath("$.id").doesNotExist())
             .andExpect(jsonPath("$.status").doesNotExist())
@@ -521,7 +538,7 @@ class PaymentGatewayControllerTest {
             .andExpect(status().is(400))
             .andExpect(jsonPath("$.id").doesNotExist())
             .andExpect(jsonPath("$.status").value(PaymentStatus.REJECTED.getName()))
-            .andExpect(jsonPath("$.errors.postPaymentRequest").value("Card expiry date must be in the future"));
+            .andExpect(jsonPath("$.errors.paymentRequest").value("Card expiry date must be in the future"));
       }
 
     }
@@ -532,19 +549,19 @@ class PaymentGatewayControllerTest {
 
     @Test
     void postThenGet_shouldSucceed_whenBankAuthorizes() throws Exception {
-      String body = """
-          {
-            "card_number": "2222405343248877",
-            "expiry_month": 4,
-            "expiry_year": 2027,
-            "currency": "GBP",
-            "amount": 100,
-            "cvv": "1234"
-          }
-          """;
+      stubFor(post(ACQUIRING_BANK_PATH).withHeader(ContentTypeHeader.KEY, equalTo("application/json"))
+          .withRequestBody(equalToJson(
+              EXPECTED_REQUEST_TO_ACQUIRING_BANK
+          )).willReturn(ok().withHeader(ContentTypeHeader.KEY, "application/json").withBody("""
+                   {
+                      "authorized": true,
+                      "authorization_code": "0bb07405-6d44-4b50-a14f-7ae0beff13ad"
+                   }
+                   """)));
+
       MvcResult mvcResult = mvc.perform(
               MockMvcRequestBuilders.post(BASE_URL).contentType(MediaType.APPLICATION_JSON)
-                  .content(body))
+                  .content(PAYMENT_REQUEST))
           .andExpect(status().isOk())
           .andExpect(jsonPath("$.id").exists())
           .andExpect(jsonPath("$.status").value(PaymentStatus.AUTHORIZED.getName()))
@@ -565,19 +582,14 @@ class PaymentGatewayControllerTest {
 
     @Test
     void postThenGet_shouldSucceed_whenBankDeclines() throws Exception {
-      String body = """
-          {
-            "card_number": "2222405343248876",
-            "expiry_month": 4,
-            "expiry_year": 2027,
-            "currency": "GBP",
-            "amount": 100,
-            "cvv": "1234"
-          }
-          """;
+      stubFor(post(ACQUIRING_BANK_PATH).withHeader(ContentTypeHeader.KEY, equalTo("application/json"))
+          .withRequestBody(equalToJson(EXPECTED_REQUEST_TO_ACQUIRING_BANK))
+          .willReturn(ok().withHeader(ContentTypeHeader.KEY, "application/json")
+              .withBody(DECLINED_RESPONSE_FROM_ACQUIRING_BANK)));
+
       MvcResult mvcResult = mvc.perform(
               MockMvcRequestBuilders.post(BASE_URL).contentType(MediaType.APPLICATION_JSON)
-                  .content(body))
+                  .content(PAYMENT_REQUEST))
           .andExpect(status().isOk())
           .andExpect(jsonPath("$.id").exists())
           .andExpect(jsonPath("$.status").value(PaymentStatus.DECLINED.getName()))
@@ -588,7 +600,7 @@ class PaymentGatewayControllerTest {
       mvc.perform(MockMvcRequestBuilders.get(BASE_URL + "/" + id))
           .andExpect(status().isOk())
           .andExpect(jsonPath("$.status").value(PaymentStatus.DECLINED.getName()))
-          .andExpect(jsonPath("$.cardNumberLastFour").value("8876"))
+          .andExpect(jsonPath("$.cardNumberLastFour").value("8877"))
           .andExpect(jsonPath("$.expiryMonth").value(4))
           .andExpect(jsonPath("$.expiryYear").value(2027))
           .andExpect(jsonPath("$.currency").value("GBP"))
