@@ -52,7 +52,7 @@ class PaymentGatewayControllerTest {
   private static final String AUTHORIZED_RESPONSE_FROM_ACQUIRING_BANK = """
       {
          "authorized": true,
-         "authorization_code": "0bb07405-6d44-4b50-a14f-7ae0beff13ad"      
+         "authorization_code": "0bb07405-6d44-4b50-a14f-7ae0beff13ad"
       }
       """;
 
