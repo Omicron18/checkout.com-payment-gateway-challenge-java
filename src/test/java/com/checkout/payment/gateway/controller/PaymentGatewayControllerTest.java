@@ -58,7 +58,8 @@ class PaymentGatewayControllerTest {
 
   private static final String DECLINED_RESPONSE_FROM_ACQUIRING_BANK = """
       {
-         "authorized": false
+         "authorized": false,
+         "authorization_code": ""
       }
       """;
 

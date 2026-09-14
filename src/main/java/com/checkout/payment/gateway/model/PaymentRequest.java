@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
@@ -15,6 +16,7 @@ import org.hibernate.validator.constraints.Range;
 public record PaymentRequest(
 
     @JsonProperty("card_number")
+    @NotNull
     @Size(min = 14, max = 19)
     @Pattern(regexp = "^\\d+$", message = "must be numeric")
     String cardNumber,
@@ -30,6 +32,7 @@ public record PaymentRequest(
     int expiryYear,
 
     @Pattern(regexp = "^(USD|GBP|EUR)$", message = "must be one of USD, GBP, EUR")
+    @NotNull
     String currency,
 
     @Digits(integer = 9, fraction = 0)
@@ -38,6 +41,7 @@ public record PaymentRequest(
 
     @Size(min = 3, max = 4)
     @Pattern(regexp = "^\\d+$", message = "must be numeric")
+    @NotNull
     String cvv
 ) {
   public String getExpiryDate() {
